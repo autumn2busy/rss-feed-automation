@@ -1,1 +1,6 @@
+name: Daily RSS Feed Processing
 
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Runs at 6:00 AM UTC daily
+  workflow_dispatch:  # Allows manual triggering
