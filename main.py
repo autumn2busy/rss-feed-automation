@@ -1,286 +1,228 @@
-import os
 import json
-import hashlib
-import re
-import feedparser
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
-import requests
-from markdownify import markdownify
+import datetime
+from typing import List, Dict, Any, Optional, Set
+from urllib import request
+from dataclasses import dataclass
 
-# Ensure data directory exists
-os.makedirs('data', exist_ok=True)
-
+# Define models
+@dataclass
 class RSSItem:
-    """Represents a processed RSS feed item"""
-    def __init__(self, title, description, link, pub_date=None, image_url=None, source="", item_id=""):
-        self.title = title
-        self.description = description
-        self.link = link
-        self.pub_date = pub_date
-        self.image_url = image_url
-        self.source = source
-        self.item_id = item_id
-    
-    def to_dict(self):
-        return {
-            'title': self.title,
-            'description': self.description,
-            'link': self.link,
-            'pub_date': self.pub_date.isoformat() if self.pub_date else None,
-            'image_url': self.image_url,
-            'source': self.source,
-            'item_id': self.item_id
-        }
+    """Model for an RSS feed item"""
+    title: str
+    link: str
+    published_date: str
+    description: str
+    image_url: Optional[str] = None
+    category: Optional[str] = ""
 
-def extract_image_url(item_description):
-    """Extract image URL from description if available"""
-    if not item_description:
-        return None
-    
-    # Parse HTML
-    soup = BeautifulSoup(item_description, 'html.parser')
-    
-    # Look for image tags
-    img_tag = soup.find('img')
-    if img_tag and img_tag.get('src'):
-        return img_tag['src']
+# Function to extract image URL from RSS item
+def _extract_image_url(item: Dict[str, Any]) -> Optional[str]:
+    """Extract image URL from RSS item if available"""
+    # Look for image in description (simple regex approach)
+    if 'description' in item:
+        import re
+        img_match = re.search(r'<img.+?src=[\'"](.+?)[\'"]', item['description'])
+        if img_match:
+            return img_match.group(1)
     
     return None
 
-def fetch_and_process_feeds():
-    """Fetch all RSS feeds and process them into a standard format"""
-    # List of RSS feed URLs to process
-    feeds = [
-        "https://www.nationalmortgagenews.com/feed",
-        "https://themreport.com/feed",
-        "https://www.valuewalk.com/feed/",
-        "https://www.attomdata.com/news/feed/"
-    ]
-    
-    # Get items from all feeds
-    all_items = []
+def _extract_tag_content(xml_str: str, tag: str) -> Optional[str]:
+    """Helper function to extract content between XML tags"""
+    import re
+    pattern: str = f"<{tag}>(.*?)</{tag}>"
+    match = re.search(pattern, xml_str, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+
+# Function to fetch RSS feed
+def _fetch_rss_feed(url: str) -> Dict[str, Any]:
+    """Fetch and parse RSS feed content"""
+    try:
+        # Create an opener that adds a user agent
+        opener: request.OpenerDirector = request.build_opener()
+        opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
+        
+        # Fetch the content
+        with opener.open(url) as response:
+            content: str = response.read().decode('utf-8')
+            
+        # Simple XML parsing using string operations
+        entries: List[Dict[str, str]] = []
+        
+        # Split content into items
+        items: List[str] = content.split('<item>')
+        for item in items[1:]:  # Skip the first split as it's the header
+            item_end_pos: int = item.find('</item>')
+            if item_end_pos > 0:
+                item = item[:item_end_pos]  # Trim to just the item content
+
+            # Extract basic fields using string operations
+            title: str = _extract_tag_content(item, 'title') or 'No Title'
+            link: str = _extract_tag_content(item, 'link') or ''
+            description: str = _extract_tag_content(item, 'description') or ''
+            published: str = _extract_tag_content(item, 'pubDate') or ''
+            category: str = _extract_tag_content(item, 'category') or ''
+            
+            entry: Dict[str, str] = {
+                'title': title,
+                'link': link,
+                'description': description,
+                'published': published,
+                'category': category
+            }
+            entries.append(entry)
+        
+        return {"entries": entries}
+    except Exception as e:
+        print(f"Error fetching feed {url}: {str(e)}")
+        return {"entries": []}
+
+# Function to get new items from feeds
+def _get_new_items(feeds: List[str], seen_items: Set[str]) -> List[RSSItem]:
+    """Fetch RSS feeds and return new items not seen before"""
+    new_items = []
     
     for feed_url in feeds:
         try:
-            # Get the feed items
-            parsed_feed = feedparser.parse(feed_url)
-            source_name = feed_url.split('/')[2]  # Extract domain as source name
+            print(f"Fetching feed: {feed_url}")
+            feed = _fetch_rss_feed(feed_url)
             
-            # Process each item
-            for entry in parsed_feed.entries:
-                # Create a unique ID for the item based on title and link
-                item_hash = hashlib.md5(f"{entry.title}:{entry.link}".encode()).hexdigest()
+            for entry in feed["entries"][:10]:  # Process up to 10 latest entries
+                # Create a unique ID for this item
+                item_id = f"{entry.get('link', '')}"
                 
-                # Parse the publication date
-                pub_date = None
-                if hasattr(entry, 'published_parsed'):
-                    pub_date = datetime(*entry.published_parsed[:6])
-                
-                # Get description
-                description = ""
-                if hasattr(entry, 'description'):
-                    description = entry.description
-                elif hasattr(entry, 'summary'):
-                    description = entry.summary
+                if item_id not in seen_items:
+                    # Extract image URL
+                    image_url = _extract_image_url(entry)
                     
-                # Extract image URL if available
-                image_url = extract_image_url(description)
-                
-                # Create clean description (convert HTML to markdown)
-                clean_description = markdownify(description)
-                
-                # Add processed item to our list
-                processed_item = RSSItem(
-                    title=entry.title,
-                    description=clean_description,
-                    link=entry.link,
-                    pub_date=pub_date,
-                    image_url=image_url,
-                    source=source_name,
-                    item_id=item_hash
-                )
-                all_items.append(processed_item)
-                
+                    # Create RSS item
+                    item = RSSItem(
+                        title=entry.get('title', 'No Title'),
+                        link=entry.get('link', ''),
+                        published_date=entry.get('published', ''),
+                        description=entry.get('description', ''),
+                        image_url=image_url,
+                        category=entry.get('category', '')
+                    )
+                    
+                    new_items.append(item)
+                    seen_items.add(item_id)
         except Exception as e:
-            print(f"Error processing feed {feed_url}: {str(e)}")
-    
-    # Sort items by publication date (newest first)
-    all_items.sort(key=lambda x: x.pub_date if x.pub_date else datetime.min, reverse=True)
-    
-    return all_items
-
-def get_new_items(items, since):
-    """Filter items to only get new ones published after a specific date"""
-    new_items = []
-    
-    for item in items:
-        # If the item has no pub_date, we can't determine if it's new
-        if not item.pub_date:
-            continue
-            
-        # If the item was published after our cutoff date, it's new
-        if item.pub_date > since:
-            new_items.append(item)
+            print(f"Error processing feed {feed_url}: {e}")
     
     return new_items
 
-def save_last_run_info(last_run_time, last_item_ids):
-    """Save information about this run for future reference"""
-    save_data = {
-        "last_run": last_run_time.isoformat(),
-        "last_item_ids": last_item_ids
+# Function to prepare Wix payload from RSS item
+def _prepare_wix_payload(item: RSSItem) -> dict:
+    """
+    Transform RSS item into the format expected by Wix collection.
+    """
+    # Map RSS item fields to Wix collection fields
+    return {
+        "title": item.title if hasattr(item, 'title') else "",
+        "summary": item.description if hasattr(item, 'description') else "",
+        "image": item.image_url if hasattr(item, 'image_url') else "",
+        "link": item.link if hasattr(item, 'link') else "",
+        "category": item.category if hasattr(item, 'category') else "",
+        "publishedDate": item.published_date if hasattr(item, 'published_date') else "",
+        "featured": False  # Default value for featured items
+    }
+
+# Function to send items to Wix API
+def _send_to_wix_api(items: list) -> dict:
+    """
+    Send processed RSS items to Wix collection via the Wix Data API.
+    """
+    from urllib import request
+    import json
+    
+    # Wix API configuration - using values from your curl command
+    api_url: str = "https://www.wixapis.com/data/v2/collections/NewsFeed/items"
+    
+    # Authentication headers from your curl command
+    headers: dict = {
+        "Authorization": "IST.eyJraWQiOiJQb3pIX2FDMiIsImFsZyI6IlJTMjU2In0.eyJkYXRhIjoie1wiaWRcIjpcImNjMGNiNWVlLWQ4MzQtNDNkYi05ODA5LTA5ZDZiMTc5MTllMFwiLFwiaWRlbnRpdHlcIjp7XCJ0eXBlXCI6XCJhcHBsaWNhdGlvblwiLFwiaWRcIjpcIjRmNWRhYTA4LWE1YzQtNDgyZC1iZDNmLWY4MzAzMmI5ZDMzM1wifSxcInRlbmFudFwiOntcInR5cGVcIjpcImFjY291bnRcIixcImlkXCI6XCJmOWJhZmU1YS05MjA1LTRlZDEtYjNiOC0yZGI4YTQ3OGY4ODVcIn19IiwiaWF0IjoxNzQzOTc2Njc5fQ.KWizNJ5pHIF3Z4X2iIONQ7x46vIFwBuvQEUTRCL3TGp0f4J-C3wejPEDRBDbVY7POI5iYyHNQZ7sf30nwpzgQLurWwihb4K8Lr9yZUa9vzOewqnc-R2E-wlXx1-fJOg8nnUEMo8m6gGNUpAC6l4_aekuidMROCvjmC5N4R6yG3Ieze71kYwMj6XGnn-20TSKQUw6Y32XCDmk9mtfUYkip2ydN5cty8oe36yFL40atyc9DBFNAln5kCKmzub2TZH474aVqD2NWnNLUlRt7qwaPpflG6W_Y-d0HxCZIZxgtJHjciyZ4lqypo1H4ZVQ6VkCjI1ZUK-G6rl_xEpwRBpPpw",
+        "wix-account-id": "f9bafe5a-9205-4ed1-b3b8-2db8a478f885",
+        "wix-site-id": "2b8b6470-c179-4c8c-8f0f-ce7865e6d713",
+        "Content-Type": "application/json"
     }
     
-    # Save the data to a JSON file
-    with open('data/last_run_info.json', 'w') as f:
-        json.dump(save_data, f, indent=2)
-
-def load_last_run_info():
-    """Load information about the last run"""
-    try:
-        # Check if the file exists
-        if not os.path.exists('data/last_run_info.json'):
-            print("No last run information found, treating all items as new")
-            return None, []
-            
-        # Load the file
-        with open('data/last_run_info.json', 'r') as f:
-            data = json.load(f)
+    # Process each item and send in individual requests
+    results: list = []
+    
+    for item in items:
+        # Prepare the individual item payload
+        payload: dict = _prepare_wix_payload(item)
         
-        last_run = datetime.fromisoformat(data["last_run"])
-        last_item_ids = data["last_item_ids"]
+        # Create request with headers
+        payload_bytes: bytes = json.dumps(payload).encode('utf-8')
+        req: request.Request = request.Request(
+            api_url,
+            data=payload_bytes,
+            headers=headers,
+            method='POST'
+        )
         
-        print(f"Loaded last run information: {last_run}, {len(last_item_ids)} items")
-        return last_run, last_item_ids
-        
-    except Exception as e:
-        print(f"Error loading last run information: {str(e)}")
-        return None, []
-
-def save_items_to_files(items, all_items=None):
-    """Save the items to various formats for easy consumption"""
+        # Send request to Wix API
+        print(f"Sending item '{payload.get('title', 'Untitled')}' to Wix collection")
+        try:
+            # Create an opener that adds a user agent
+            opener: request.OpenerDirector = request.build_opener()
+            with opener.open(req) as response:
+                response_data: dict = json.loads(response.read().decode())
+                results.append(response_data)
+                print(f"Successfully sent item to Wix: {payload.get('title', 'Untitled')}")
+        except Exception as e:
+            error_msg: str = f"Failed to send item to Wix: {str(e)}"
+            print(error_msg)
+            # Continue with other items even if one fails
     
-    # Save JSON file with all new items
-    items_json = [item.to_dict() for item in items]
-    with open('data/new_items.json', 'w') as f:
-        json.dump(items_json, f, indent=2)
+    return {"sent_count": len(results), "results": results}
+
+# Function to fetch and process feeds
+def fetch_and_process_feeds(feeds: List[str]) -> List[RSSItem]:
+    """Fetch and process RSS feeds, returning new items"""
+    # Initialize empty set for seen items (won't persist between runs)
+    seen_items: Set[str] = set()
     
-    # Save CSV file with all new items
-    if items:
-        with open('data/new_items.csv', 'w', newline='', encoding='utf-8') as f:
-            # Get field names from first item
-            fieldnames = items[0].to_dict().keys()
-            
-            # Create CSV writer
-            import csv
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            
-            # Write header and rows
-            writer.writeheader()
-            for item in items:
-                writer.writerow(item.to_dict())
+    # Get new items from feeds
+    new_items: List[RSSItem] = _get_new_items(feeds, seen_items)
     
-    # Save full feed JSON (all items)
-    if all_items:
-        all_items_json = [item.to_dict() for item in all_items]
-        with open('data/all_items.json', 'w') as f:
-            json.dump(all_items_json, f, indent=2)
+    return new_items
+
+# Function to run RSS to Wix automation
+def run_daily_rss_to_wix() -> Dict[str, Any]:
+    """Main function to run the RSS to Wix automation"""
+    # List of RSS feeds to monitor
+    feeds: List[str] = [
+“https://www.usda.gov/about-usda/policies-and-links/digital/rss-feeds”,
+“https://www.hud.gov/sites/dfiles/Main/documents/hudrss.xml”,
+“https://www.huduser.gov/rss/pub.xml”,
+“https://www.usda.gov/rss-feeds”,
+“https://appraisersblogs.com/feed”
+    ]
     
-    # Create a simple HTML page
-    html_content = """
-    <!DOCTYPE html>
-
-<head>
-    <title>Latest Mortgage Industry News</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
-        .item { margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px; }
-        .title { font-size: 22px; font-weight: bold; margin-bottom: 10px; }
-        .meta { font-size: 14px; color: #666; margin-bottom: 10px; }
-        .image { max-width: 100%; margin: 10px 0; }
-        .description { line-height: 1.5; }
-        .link { margin-top: 15px; }
-        .link a { color: #0066cc; text-decoration: none; }
-        .link a:hover { text-decoration: underline; }
-        .updated { text-align: center; margin-top: 30px; font-size: 14px; color: #666; }
-    </style>
-</head>
-<body>
-    <h1>Latest Mortgage Industry News</h1>
-"""
-
-for item in items:
-    pub_date_str = item.pub_date.strftime('%Y-%m-%d %H:%M:%S') if item.pub_date else 'Unknown date'
+    # Process feeds and get new items
+    processed_items: List[RSSItem] = fetch_and_process_feeds(feeds)
+    print(f"Found {len(processed_items)} new items")
     
-    html_content += f"""
-    <div class="item">
-        <div class="title">{item.title}</div>
-        <div class="meta">Source: {item.source} | Published: {pub_date_str}</div>
-    """
-    
-    if item.image_url:
-        html_content += f'<div><img class="image" src="{item.image_url}" alt="{item.title}"></div>'
-    
-    html_content += f"""
-        <div class="description">{item.description}</div>
-        <div class="link"><a href="{item.link}" target="_blank">Read More →</a></div>
-    </div>
-    """
+    # Send items to Wix API
+    if processed_items:
+        result: Dict[str, Any] = _send_to_wix_api(processed_items)
+        print(f"Sent {result.get('sent_count', 0)} items to Wix")
+        return result
+    else:
+        print("No new items to send to Wix")
+        return {"sent_count": 0, "results": []}
 
-html_content += f"""
-    <div class="updated">Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-</body>
+# Function for command-line execution
+def run_feed_automation() -> None:
+    """Run the feed automation from command line"""
+    print("Starting RSS feed automation...")
+    result: Dict[str, Any] = run_daily_rss_to_wix()
+    print(f"Completed RSS feed automation. Processed {result.get('sent_count', 0)} items.")
 
-"""
-
-with open('data/index.html', 'w', encoding='utf-8') as f:
-    f.write(html_content)
-def main():
-"""Main function to run the RSS feed automation"""
-print("Starting RSS feed automation")
-
-# Get the current time to use as this run's timestamp
-current_time = datetime.now()
-
-# Get information about the last run
-last_run_time, last_item_ids = load_last_run_info()
-
-# Default to 24 hours ago if no last run information
-if not last_run_time:
-    last_run_time = current_time - timedelta(days=1)
-    print(f"Using default cutoff time: {last_run_time}")
-
-# Fetch and process all feed items
-all_items = fetch_and_process_feeds()
-
-# Get only the new items
-new_items = get_new_items(all_items, last_run_time)
-print(f"Found {len(new_items)} new items out of {len(all_items)} total items")
-
-# Filter out items we've already processed (by ID)
-filtered_new_items = [item for item in new_items if item.item_id not in last_item_ids]
-print(f"After filtering already processed items: {len(filtered_new_items)} items to process")
-
-# Track item IDs we've processed
-new_item_ids = last_item_ids.copy()  # Start with existing IDs
-for item in filtered_new_items:
-    new_item_ids.append(item.item_id)
-
-# Save the items to various formats
-save_items_to_files(filtered_new_items, all_items)
-
-# Save information about this run
-save_last_run_info(current_time, new_item_ids)
-
-print("RSS feed automation completed successfully")
-print(f"Files created in data/ directory:")
-print("- new_items.json - JSON array of new items")
-print("- new_items.csv - CSV file of new items for import")
-print("- all_items.json - JSON array of all items")
-print("- index.html - Static HTML page of new items")
-if name == "main":
-main()
-
+# This will execute automatically when the script is run by GitHub Actions
+run_feed_automation()
