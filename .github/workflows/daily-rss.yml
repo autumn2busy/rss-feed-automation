@@ -2,15 +2,18 @@ name: Daily-RSS-Processing
 
 on:
   schedule:
-    - cron: '0 12 * * *' # runs every day at 12:00 UTC
+    - cron: '0 12 * * *'  # Runs every day at 12:00 UTC
   workflow_dispatch:
+
+permissions:
+  contents: write  # ✅ Needed to allow git push via GITHUB_TOKEN
 
 jobs:
   rss-to-wix:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -19,9 +22,10 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
 
-      - name: Ensure data folder is tracked
+      - name: Ensure data folder exists and is tracked
         run: |
           mkdir -p data
           touch data/.gitkeep
@@ -30,13 +34,17 @@ jobs:
           git add data/.gitkeep
           git commit -m "Ensure data folder is tracked" || echo "Nothing to commit"
 
-      - name: Run main script
+      - name: Run RSS Feed Script
         run: python main.py
 
-      - name: Commit any changes made by script
+      - name: Commit and Push Changes
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
+
+          # ✅ Set remote to use GitHub token for authenticated push
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+
           git add -A
           git commit -m "Automated update from RSS script" || echo "No changes to commit"
-          git push
+          git push origin HEAD
