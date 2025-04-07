@@ -113,7 +113,7 @@ def _prepare_wix_payload(item: RSSItem) -> dict:
 def _send_to_wix_api(items: list) -> dict:
     api_url = "https://www.wixapis.com/data/v2/collections/NewsFeed/items"  # 👈 Replace with your actual collection ID
     headers = {
-        "Authorization": "Bearer YOUR_REAL_WIX_API_KEY",  # 👈 Replace with your actual token
+        "Authorization": "IST.eyJraWQiOiJQb3pIX2FDMiIsImFsZyI6IlJTMjU2In0.eyJkYXRhIjoie1wiaWRcIjpcImNjMGNiNWVlLWQ4MzQtNDNkYi05ODA5LTA5ZDZiMTc5MTllMFwiLFwiaWRlbnRpdHlcIjp7XCJ0eXBlXCI6XCJhcHBsaWNhdGlvblwiLFwiaWRcIjpcIjRmNWRhYTA4LWE1YzQtNDgyZC1iZDNmLWY4MzAzMmI5ZDMzM1wifSxcInRlbmFudFwiOntcInR5cGVcIjpcImFjY291bnRcIixcImlkXCI6XCJmOWJhZmU1YS05MjA1LTRlZDEtYjNiOC0yZGI4YTQ3OGY4ODVcIn19IiwiaWF0IjoxNzQzOTc2Njc5fQ.KWizNJ5pHIF3Z4X2iIONQ7x46vIFwBuvQEUTRCL3TGp0f4J-C3wejPEDRBDbVY7POI5iYyHNQZ7sf30nwpzgQLurWwihb4K8Lr9yZUa9vzOewqnc-R2E-wlXx1-fJOg8nnUEMo8m6gGNUpAC6l4_aekuidMROCvjmC5N4R6yG3Ieze71kYwMj6XGnn-20TSKQUw6Y32XCDmk9mtfUYkip2ydN5cty8oe36yFL40atyc9DBFNAln5kCKmzub2TZH474aVqD2NWnNLUlRt7qwaPpflG6W_Y-d0HxCZIZxgtJHjciyZ4lqypo1H4ZVQ6VkCjI1ZUK-G6rl_xEpwRBpPpw",  # 👈 Replace with your actual token
         "Content-Type": "application/json"
     }
 
