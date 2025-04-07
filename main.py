@@ -111,7 +111,7 @@ def _prepare_wix_payload(item: RSSItem) -> dict:
 
 # ✅ Insert to Wix using proper API format
 def _send_to_wix_api(items: list) -> dict:
-    api_url = "https://www.wixapis.com/data/v2/collections/news_feed/items"  # 👈 Replace with your actual collection ID
+    api_url = "https://www.wixapis.com/data/v2/collections/NewsFeed/items"  # 👈 Replace with your actual collection ID
     headers = {
         "Authorization": "Bearer YOUR_REAL_WIX_API_KEY",  # 👈 Replace with your actual token
         "Content-Type": "application/json"
