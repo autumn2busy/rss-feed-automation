@@ -139,7 +139,7 @@ def _send_to_wix_api(items: list) -> dict:
     import json
     
     # Wix API configuration - using values from your curl command
-    api_url: str = "https://www.wixapis.com/data/v2/collections/NewsFeed/items"
+    api_url: str = "https://www.wixapis.com/data/v2/collections/NewsFeed"
     
     # Authentication headers from your curl command
     headers: dict = {
@@ -197,10 +197,9 @@ def run_daily_rss_to_wix() -> Dict[str, Any]:
     """Main function to run the RSS to Wix automation"""
     # List of RSS feeds to monitor
     feeds: List[str] = [
-    "https://www.usda.gov/about-usda/policies-and-links/digital/rss-feeds",
+    "https://www.usda.gov/rss/latest-releases.xml",
     "https://www.hud.gov/sites/dfiles/Main/documents/hudrss.xml",
     "https://www.huduser.gov/rss/pub.xml",
-    "https://www.usda.gov/rss-feeds",
     "https://appraisersblogs.com/feed"
     ]
     
